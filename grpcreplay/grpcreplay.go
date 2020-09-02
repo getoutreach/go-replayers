@@ -849,6 +849,7 @@ func readEntry(r io.Reader) (*entry, error) {
 		method:   pe.Method,
 		msg:      msg,
 		refIndex: int(pe.RefIndex),
+		delay:    pe.Delay,
 	}, nil
 }
 
