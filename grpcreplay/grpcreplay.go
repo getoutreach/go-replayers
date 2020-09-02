@@ -168,7 +168,6 @@ func (r *Recorder) writeEntry(e *entry) (int, error) {
 		return 0, r.err
 	}
 	e.delay = int64(time.Now().Sub(r.st))
-	r.st = time.Now()
 	err := writeEntry(r.w, e)
 	if err != nil {
 		r.err = err
@@ -265,6 +264,7 @@ type Resender struct {
 	r       io.Reader
 	srp     SendRequestProcessor
 	opts    *ResenderOptions
+	st      time.Time
 }
 
 type SendRequestProcessor interface {
@@ -291,6 +291,13 @@ func NewResenderReader(r io.Reader, srp SendRequestProcessor, opts *ResenderOpti
 	return &Resender{srp: srp, r: bufio.NewReader(r), opts: opts}, nil
 }
 
+func (rep *Resender) sleepUntil(delay int64) {
+	if !rep.opts.HonorTime {
+		return
+	}
+	time.Sleep(time.Duration(delay - int64(time.Now().Sub(rep.st))))
+}
+
 func (rep *Resender) Run() error {
 	r := rep.r
 	bytes, err := readHeader(r)
@@ -298,6 +305,7 @@ func (rep *Resender) Run() error {
 		return err
 	}
 	rep.initial = bytes
+	rep.st = time.Now()
 
 	callsByIndex := map[int]*call{}
 	streamsByIndex := map[int]*stream{}
@@ -311,18 +319,14 @@ func (rep *Resender) Run() error {
 		}
 		switch e.kind {
 		case pb.Entry_REQUEST:
-			if rep.opts.HonorTime {
-				time.Sleep(time.Duration(e.delay) - time.Duration(rep.opts.PreloadMs)*time.Millisecond)
-			}
+			rep.sleepUntil(e.delay)
 			rep.srp.NextCall(e.method, e.msg.msg)
 
 		case pb.Entry_RESPONSE:
 			continue
 
 		case pb.Entry_CREATE_STREAM:
-			if rep.opts.HonorTime {
-				time.Sleep(time.Duration(e.delay))
-			}
+			rep.sleepUntil(e.delay)
 			rep.srp.NextStream(e.method, i)
 			s := &stream{method: e.method, createIndex: i}
 			s.createErr = e.msg.err
@@ -330,9 +334,7 @@ func (rep *Resender) Run() error {
 			rep.streams = append(rep.streams, s)
 
 		case pb.Entry_SEND:
-			if rep.opts.HonorTime {
-				time.Sleep(time.Duration(e.delay))
-			}
+			rep.sleepUntil(e.delay)
 			s := streamsByIndex[e.refIndex]
 			if s == nil {
 				return fmt.Errorf("resender: no stream for send #%d", i)
@@ -343,9 +345,7 @@ func (rep *Resender) Run() error {
 			continue
 
 		case pb.Entry_CLOSE:
-			if rep.opts.HonorTime {
-				time.Sleep(time.Duration(e.delay))
-			}
+			rep.sleepUntil(e.delay)
 			rep.srp.NextClose(e.refIndex)
 
 		default:
