@@ -168,7 +168,6 @@ func (r *Recorder) writeEntry(e *entry) (int, error) {
 		return 0, r.err
 	}
 	e.delay = int64(time.Now().Sub(r.st))
-	r.st = time.Now()
 	err := writeEntry(r.w, e)
 	if err != nil {
 		r.err = err
