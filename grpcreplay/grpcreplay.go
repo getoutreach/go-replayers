@@ -268,10 +268,10 @@ type Resender struct {
 }
 
 type SendRequestProcessor interface {
-	NextCall(methodName string, msg proto.Message)
-	NextStream(methodName string, i int)
-	NextSend(message proto.Message, i int)
-	NextClose(i int)
+	NextCall(methodName string, msg proto.Message, delay int64)
+	NextStream(methodName string, i int, delay int64)
+	NextSend(message proto.Message, i int, delay int64)
+	NextClose(i int, delay int64)
 }
 
 type ResenderOptions struct {
@@ -320,14 +320,14 @@ func (rep *Resender) Run() error {
 		switch e.kind {
 		case pb.Entry_REQUEST:
 			rep.sleepUntil(e.delay)
-			rep.srp.NextCall(e.method, e.msg.msg)
+			rep.srp.NextCall(e.method, e.msg.msg, e.delay)
 
 		case pb.Entry_RESPONSE:
 			continue
 
 		case pb.Entry_CREATE_STREAM:
 			rep.sleepUntil(e.delay)
-			rep.srp.NextStream(e.method, i)
+			rep.srp.NextStream(e.method, i, e.delay)
 			s := &stream{method: e.method, createIndex: i}
 			s.createErr = e.msg.err
 			streamsByIndex[i] = s
@@ -339,14 +339,14 @@ func (rep *Resender) Run() error {
 			if s == nil {
 				return fmt.Errorf("resender: no stream for send #%d", i)
 			}
-			rep.srp.NextSend(e.msg.msg, e.refIndex)
+			rep.srp.NextSend(e.msg.msg, e.refIndex, e.delay)
 
 		case pb.Entry_RECV:
 			continue
 
 		case pb.Entry_CLOSE:
 			rep.sleepUntil(e.delay)
-			rep.srp.NextClose(e.refIndex)
+			rep.srp.NextClose(e.refIndex, e.delay)
 
 		default:
 			return fmt.Errorf("resender: unknown kind %s", e.kind)
