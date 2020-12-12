@@ -37,6 +37,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+var ErrNoCustomMarshal = errors.New("no custom marshl")
+var ErrNoPrint = errors.New("don't print this record")
+
 // A Recorder records RPCs for later playback.
 type Recorder struct {
 	opts *RecorderOptions
@@ -653,20 +656,22 @@ func (rep *Replayer) extractStream(method string, req proto.Message) *stream {
 	return nil
 }
 
+type CustomMarshaler func(message proto.Message, delay int64) (string, error)
+
 // Fprint reads the entries from filename and writes them to w in human-readable form.
 // It is intended for debugging.
-func Fprint(w io.Writer, filename string) error {
+func Fprint(w io.Writer, filename string, marshaller CustomMarshaler) error {
 	f, err := os.Open(filename)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	return FprintReader(w, f)
+	return FprintReader(w, f, marshaller)
 }
 
 // FprintReader reads the entries from r and writes them to w in human-readable form.
 // It is intended for debugging.
-func FprintReader(w io.Writer, r io.Reader) error {
+func FprintReader(w io.Writer, r io.Reader, marshaller CustomMarshaler) error {
 	initial, err := readHeader(r)
 	if err != nil {
 		return err
@@ -681,19 +686,33 @@ func FprintReader(w io.Writer, r io.Reader) error {
 			return nil
 		}
 
-		fmt.Fprintf(w, "#%d: kind: %s, method: %s, ref index: %d", i, e.kind, e.method, e.refIndex)
+		text := ""
 		switch {
 		case e.msg.msg != nil:
+			if marshaller != nil {
+				if text, err = marshaller(e.msg.msg, e.delay); err == ErrNoPrint {
+					continue
+				}
+			}
+			printEntryHeader(w, i, e)
 			fmt.Fprintf(w, ", message:\n")
-			if err := proto.MarshalText(w, e.msg.msg); err != nil {
-				return err
+			if text != "" {
+				w.Write([]byte(text))
+			} else {
+				proto.MarshalText(w, e.msg.msg)
 			}
 		case e.msg.err != nil:
+			printEntryHeader(w, i, e)
 			fmt.Fprintf(w, ", error: %v\n", e.msg.err)
 		default:
+			printEntryHeader(w, i, e)
 			fmt.Fprintln(w)
 		}
 	}
+}
+
+func printEntryHeader(w io.Writer, i int, e *entry) {
+	fmt.Fprintf(w, "\n==================================================\n#%d: kind: %s, method: %s, ref index: %d", i, e.kind, e.method, e.refIndex)
 }
 
 // An entry holds one gRPC action (request, response, etc.).
@@ -702,7 +721,8 @@ type entry struct {
 	method   string
 	msg      message
 	refIndex int // index of corresponding request or create-stream
-	delay    int64
+	// this is the offset from the beginning of this grpc recording.
+	delay int64
 }
 
 func (e1 *entry) equal(e2 *entry) bool {
