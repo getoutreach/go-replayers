@@ -690,27 +690,27 @@ func FprintReader(w io.Writer, r io.Reader, marshaller CustomMarshaler) error {
 		switch {
 		case e.msg.msg != nil:
 			if marshaller != nil {
-				if text, err = marshaller(e.msg.msg); err == ErrNoPrint {
+				if text, err = marshaller(e.msg.msg, e.delay); err == ErrNoPrint {
 					continue
 				}
 			}
 			if text == "" {
 				text = proto.MarshalTextString(e.msg.msg)
 			}
-			printEntryHeader(e)
+			printEntryHeader(w, i, e)
 			fmt.Fprintf(w, ", message:\n")
 			w.Write([]byte(text))
 		case e.msg.err != nil:
-			printEntryHeader(e)
+			printEntryHeader(w, i, e)
 			fmt.Fprintf(w, ", error: %v\n", e.msg.err)
 		default:
-			printEntryHeader(e)
+			printEntryHeader(w, i, e)
 			fmt.Fprintln(w)
 		}
 	}
 }
 
-func printEntryHeader(w io.Writer, e *entry) {
+func printEntryHeader(w io.Writer, i int, e *entry) {
 	fmt.Fprintf(w, "#%d: kind: %s, method: %s, ref index: %d", i, e.kind, e.method, e.refIndex)
 }
 
@@ -720,7 +720,8 @@ type entry struct {
 	method   string
 	msg      message
 	refIndex int // index of corresponding request or create-stream
-	delay    int64
+	// this is the offset from the beginning of this grpc recording.
+	delay int64
 }
 
 func (e1 *entry) equal(e2 *entry) bool {
