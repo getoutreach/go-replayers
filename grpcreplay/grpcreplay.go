@@ -656,7 +656,7 @@ func (rep *Replayer) extractStream(method string, req proto.Message) *stream {
 	return nil
 }
 
-type CustomMarshaler func(message proto.Message) (string, error)
+type CustomMarshaler func(message proto.Message, delay int64) (string, error)
 
 // Fprint reads the entries from filename and writes them to w in human-readable form.
 // It is intended for debugging.
@@ -694,12 +694,13 @@ func FprintReader(w io.Writer, r io.Reader, marshaller CustomMarshaler) error {
 					continue
 				}
 			}
-			if text == "" {
-				text = proto.MarshalTextString(e.msg.msg)
-			}
 			printEntryHeader(w, i, e)
 			fmt.Fprintf(w, ", message:\n")
-			w.Write([]byte(text))
+			if text != "" {
+				w.Write([]byte(text))
+			} else {
+				proto.MarshalText(w, e.msg.msg)
+			}
 		case e.msg.err != nil:
 			printEntryHeader(w, i, e)
 			fmt.Fprintf(w, ", error: %v\n", e.msg.err)
@@ -711,7 +712,7 @@ func FprintReader(w io.Writer, r io.Reader, marshaller CustomMarshaler) error {
 }
 
 func printEntryHeader(w io.Writer, i int, e *entry) {
-	fmt.Fprintf(w, "#%d: kind: %s, method: %s, ref index: %d", i, e.kind, e.method, e.refIndex)
+	fmt.Fprintf(w, "\n==================================================\n#%d: kind: %s, method: %s, ref index: %d", i, e.kind, e.method, e.refIndex)
 }
 
 // An entry holds one gRPC action (request, response, etc.).
